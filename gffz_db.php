@@ -63,16 +63,24 @@ function gffz_UpdateUsersFromWP()
 {
 	global $wpdb;
 
+	$Values;
+	$UsersCount;
+	$ChunkSize = 500;
 	$TableName = $wpdb->prefix . GFFZ_USERS_TBL;
-	$Users = get_users();
-	foreach($Users as $User)
+
+	$Users = $wpdb->get_results("SELECT u.ID, u.user_login, u.user_registered FROM {$wpdb->users} AS u
+								 LEFT JOIN {$TableName} AS g ON g.UserID = u.ID WHERE g.ID IS NULL;");
+	if(empty($Users)) return;
+
+	$UsersCount = count($Users);
+	for($i = 0; $i < $UsersCount; $i += $ChunkSize)
 	{
-		if(is_null($wpdb->get_var("SELECT ID FROM {$TableName} WHERE UserID = {$User->ID} AND Login = '{$User->user_login}';")))
-		{
-			$Res = $wpdb->insert($TableName,
-								 array('UserID'=>$User->ID, 'Login'=>$User->user_login, 'Registered'=>$User->user_registered, 'Rate'=>0, 'TrustLimit'=>0,
-								 'ServiceAccess'=>0, 'Live'=>1), array('%d', '%s', '%s', '%d', '%f', '%d', '%d'));
-		}
+		$Values = array();
+		for($j = $i; $j < $UsersCount && $j < $i + $ChunkSize; ++$j)
+			$Values[] = $wpdb->prepare('(%d, %s, %s, 0, 0, 0, 1)', $Users[$j]->ID, $Users[$j]->user_login, $Users[$j]->user_registered);
+
+		if(! empty($Values))
+			$wpdb->query("INSERT INTO {$TableName} (UserID, Login, Registered, Rate, TrustLimit, ServiceAccess, Live) VALUES " . implode(',', $Values) . ';');
 	}
 }
 

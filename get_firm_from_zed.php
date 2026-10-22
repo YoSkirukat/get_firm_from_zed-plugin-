@@ -735,6 +735,58 @@ function gffz_CalcUserBalans($UserID, $Stat, $CheckAdmin = true)
 
 //---------------------------------------------------------
 
+function gffz_CalcUsersBalans($Stat)
+{
+	$Record;
+	$RecordsCount;
+	$Next;
+	$First = 0;
+	$AdminCost = 0;
+	$Index = array();
+	$Balans = array();
+	$UsersData = array();
+
+	$RecordsCount = count($Stat);
+	if(! $RecordsCount) return $Balans;
+
+	for($i = 0; $i < $RecordsCount; ++$i)
+	{
+		$Index[$Stat[$i]->ID] = $i;
+		if($Stat[$i]->First) $First = $Stat[$i]->ID;
+	}
+
+	$BeginRecord = gffz_GetRef();
+	if($BeginRecord !== false)
+	{
+		$Next = $BeginRecord['BeginRecID'];
+		$UsersData = $BeginRecord['UsersData'];
+	}
+	else
+		$Next = $First;
+
+	// Один проход по цепочке записей вместо отдельного прохода на каждого пользователя.
+	for($i = 0; $i < $RecordsCount; ++$i)
+	{
+		if(! isset($Index[$Next])) break;
+		$Record = $Stat[$Index[$Next]];
+
+		if(! isset($Balans[$Record->UserID])) $Balans[$Record->UserID] = 0;
+		$Balans[$Record->UserID] += -$Record->BaseCost * $Record->Rate / 100;
+		$AdminCost += $Record->AdminCost;
+
+		$Next = $Record->Next;
+	}
+
+	foreach($Balans as $UserID => $Value)
+		$Balans[$UserID] = $Value + (isset($UsersData[$UserID]) ? $UsersData[$UserID] : 0);
+
+	$Balans[GFFZ_OWNER_ID] = $AdminCost + (isset($UsersData[GFFZ_OWNER_ID]) ? $UsersData[GFFZ_OWNER_ID] : 0);
+
+	return $Balans;
+}
+
+//---------------------------------------------------------
+
 function gffz_IsAdmin()
 {
 	global $wpdb;

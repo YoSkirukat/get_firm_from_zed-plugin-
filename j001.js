@@ -68,7 +68,6 @@ jQuery(document).ready(function($){
 		DataModified = true;
 		$(this).closest('tr').attr('id', 'modified');
 		$('.ButtApply').prop('disabled', false);
-		gffz_j001_ApplyFilter($);
 	});
 
 	$('body').on('dblclick', '.GetUserStat', function(){
@@ -77,36 +76,4 @@ jQuery(document).ready(function($){
 		$('#SendCMD').children().eq(1).attr('value', ID);
 		$('#SendCMD').submit();
 	});
-
-	$('body').on('click', '#CB_U', function(){
-		gffz_j001_ApplyFilter($);
-	});
-
-	$('body').on('click', '#CB_SU', function(){
-		gffz_j001_ApplyFilter($);
-	});
 });
-
-function gffz_j001_User($)
-{
-	var Select = $('.UserTbl input:not(:checked)');
-	var Hide= ! $('#CB_U').prop('checked');
-
-	if(Select.length)
-		Select.closest('tr').prop('hidden', Hide);
-}
-
-function gffz_j001_ServiceUser($)
-{
-	var Select = $('.UserTbl input:checked');
-	var Hide= ! $('#CB_SU').prop('checked');
-
-	if(Select.length)
-		Select.closest('tr').prop('hidden', Hide);
-}
-
-function gffz_j001_ApplyFilter($)
-{
-	gffz_j001_User($);
-	gffz_j001_ServiceUser($);
-}

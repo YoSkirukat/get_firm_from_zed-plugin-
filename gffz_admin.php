@@ -90,6 +90,8 @@ function gffz_GetUsers()
 
 	$Records;
 	$Balans;
+	$BalansData;
+	$Idx;
 
 	wp_enqueue_style('gffz_s001', GFFZ_FILES_URL . 's001.css');
 	wp_enqueue_script('gffz_j001', GFFZ_FILES_URL . 'j001.js', array('jquery'), null, true);
@@ -97,12 +99,7 @@ function gffz_GetUsers()
 
 	gffz_UpdateUsersFromWP();
 
-	$Res = '<div style="margin: 0px 0px 15px;">';
-	$Res .= 'U&nbsp;<input type="checkbox" id="CB_U" checked />&nbsp;&nbsp;';
-	$Res .= 'SU&nbsp;<input type="checkbox" id="CB_SU" checked />';
-	$Res .= '</div>';
-
-	$Res .= '<form action="" method="post" id="SendCMD"><input type="hidden" name="CMD" value="GetUserStat" /><input type="hidden" name="ID" /></form>';
+	$Res = '<form action="" method="post" id="SendCMD"><input type="hidden" name="CMD" value="GetUserStat" /><input type="hidden" name="ID" /></form>';
 	$Res .= '<table class="UserTbl"><thead>
 			<th>Логин</th>
 			<th>Имя</th>
@@ -113,14 +110,21 @@ function gffz_GetUsers()
 			<th>Баланс</th></thead><tbody>' . GFFZ_NL;
 
 	$TableName = $wpdb->prefix . GFFZ_USERS_TBL;
-	$Users = $wpdb->get_results("SELECT * FROM {$TableName};");
+	$Users = $wpdb->get_results("SELECT * FROM {$TableName} WHERE ServiceAccess=1;");
 	if(! empty($Users))
 	{
 		$Records = $wpdb->get_results(GFFZ_BALANS_STAT_REQ);
+		$BalansData = empty($Records) ? array() : gffz_CalcUsersBalans($Records);
 
 		foreach($Users as $User)
 		{
-			if(! empty($Records)) $Balans = gffz_CalcUserBalans($User->UserID, $Records); else $Balans = 'n/a';
+			if(empty($Records))
+				$Balans = 'n/a';
+			else
+			{
+				$Idx = ($User->UserID == GFFZ_ADMIN_USER_ID) ? GFFZ_OWNER_ID : $User->UserID;
+				$Balans = isset($BalansData[$Idx]) ? $BalansData[$Idx] : 0;
+			}
 
 			if($User->Live)
 			{
