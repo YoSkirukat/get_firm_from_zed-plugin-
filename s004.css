@@ -1,0 +1,39 @@
+table.UserStatTbl
+{
+	width: auto;
+	font-size: 9px;
+}
+
+table.UserStatTbl tr:nth-child(even)
+{
+	background: #ecf0f1;
+}
+
+table.UserStatTbl th
+{
+	text-align: center;
+	padding: 5px;
+	background-color: #c0c0c0;
+}
+
+table.UserStatTbl td
+{
+	text-align: left;
+	padding: 5px;
+}
+
+input.edit_field
+{
+	width: 100px;
+	padding: 5px;
+}
+
+.HLight
+{
+	background-color: red;
+}
+
+input.ButtAdd
+{
+	padding:5px;
+}

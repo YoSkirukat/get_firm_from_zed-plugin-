@@ -1,0 +1,38 @@
+table.CommStatTbl
+{
+	width: auto;
+}
+
+table.CommStatTbl tr:nth-child(even)
+{
+	background: #ecf0f1;
+}
+
+table.CommStatTbl th
+{
+	text-align: center;
+	padding: 5px;
+	background-color: #c0c0c0;
+}
+
+table.CommStatTbl td
+{
+	text-align: left;
+	padding: 5px;
+}
+
+input.edit_field
+{
+	width: 100px;
+	padding: 5px;
+}
+
+.HLight
+{
+	background-color: red;
+}
+
+input.ButtAdd
+{
+	padding:5px;
+}

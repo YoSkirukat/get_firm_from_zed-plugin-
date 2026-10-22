@@ -1,0 +1,22 @@
+table.MdlTbl
+{
+	width: 100%;
+}
+
+table.MdlTbl tr:nth-child(even)
+{
+	background: #ecf0f1;
+}
+
+table.MdlTbl th
+{
+	text-align: center;
+	padding: 5px;
+	background-color: #c0c0c0;
+}
+
+table.MdlTbl td
+{
+	text-align: left;
+	padding: 5px;
+}
