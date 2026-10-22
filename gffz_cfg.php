@@ -4,6 +4,7 @@
 
 global $wpdb;
 
+define('GFFZ_PLUGIN_VERSION', '1.15');
 define('GFFZ_USER_CFG_FILE', 'gffz_user_cfg.php');
 define('GFFZ_FILES_URL', WP_PLUGIN_URL . '/get_firm_from_zed/');
 define('GFFZ_FILES_PATH', __DIR__ . '/');
@@ -11,6 +12,7 @@ define('GFFZ_NL', "\r\n");
 define('GFFZ_OWNER_ID', 0);
 define('GFFZ_PLUGIN_PAGE_TAG', '<!-- gffz_plugin -->');
 define('GFFZ_USERS_TBL', 'gffz_users');
+define('GFFZ_MODELS_TBL', 'gffz_models');
 define('GFFZ_STAT_TBL', 'gffz_stat');
 define('GFFZ_STAT_FAIL_TBL', 'gffz_stat_fail');
 define('GFFZ_PLUGIN_CFG_TBL', 'gffz_plugin_cfg');

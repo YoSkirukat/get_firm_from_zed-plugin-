@@ -3,7 +3,7 @@
 /*
 Plugin Name: get_firm_from_zed
 Description: Plugin for getting firmware from Zed.
-Version: 1.14
+Version: 1.15
 Author: Optimus
 */
 
@@ -54,6 +54,7 @@ function($param)
 add_filter('the_content', 'gffz_ContentFilter');
 
 add_action('wp_ajax_gffz_ModifyUsers', 'gffz_ModifyUsers');
+add_action('wp_ajax_gffz_ModifyModels', 'gffz_ModifyModels');
 add_action('wp_ajax_gffz_SendRequest', 'gffz_SendRequest');
 add_action('wp_gffz_SendRequest_Action', 'gffz_SendRequest_Action');
 add_action('wp_ajax_nopriv_gffz_SendRequest', 'gffz_nopriv_SendRequest');
@@ -61,6 +62,7 @@ add_action('wp_ajax_gffz_RemoveStat', 'gffz_RemoveStat');
 add_action('wp_ajax_gffz_ModifyStat', 'gffz_ModifyStat');
 add_action('wp_ajax_gffz_ModifyUserStat', 'gffz_ModifyUserStat');
 add_action('wp_ajax_gffz_RoboCalcSign', 'gffz_Robo_CalcSign');
+add_action('plugins_loaded', 'gffz_Upgrade');
 
 register_activation_hook(__FILE__, 'gffz_PluginActivate');
 register_deactivation_hook(__FILE__, 'gffz_PluginDeactivation');
@@ -206,6 +208,8 @@ function gffz_PermittedUser()
 function gffz_GetSamsungForm()
 {
 	global $gffz_UserID;
+	global $gffz_Admin;
+	gffz_Upgrade();
 	if(!gffz_CheckUserLimit($gffz_UserID)) return gffz_GetLowLimitMsg();
 
 	$Res = '';
@@ -219,6 +223,13 @@ function gffz_GetSamsungForm()
 		wp_enqueue_script('gffz_mdltbl', GFFZ_FILES_URL . 'mdltbl.js', array('jquery'), null, true);
 		wp_enqueue_script('gffz_filter', GFFZ_FILES_URL . 'filter.js', array('jquery'), null, true);
 
+		// Колонка Cost доступна только администратору.
+		if($gffz_Admin)
+		{
+			wp_enqueue_script('gffz_mdltbl_cost', GFFZ_FILES_URL . 'mdltbl_cost.js', array('jquery', 'gffz_mdltbl'), null, true);
+			wp_localize_script('gffz_mdltbl_cost', 'gffz_ModelCost', array('Url'=>admin_url('admin-ajax.php'), 'Costs'=>(object)gffz_GetModelCosts(), 'Default'=>GFFZ_ADMIN_COST));
+		}
+
 		$Res .= '<form action="" method="post" id="SendForm"><br />' . GFFZ_NL;
 		$Res .= 'Machine serail number<br />' . GFFZ_NL;
 		$Res .= '<input type="text" name="SN" maxlength="15" value="" id="SN"/><br />' . GFFZ_NL;
@@ -227,6 +238,7 @@ function gffz_GetSamsungForm()
 		$Res .= '<input type="submit" value="Получить" class="button-primary"/><br /><br />' . GFFZ_NL;
 		$Res .= 'Filter: &nbsp; &nbsp; <input type="text" id="filter" maxlength="30" /><br /><br />' . GFFZ_NL;
 		$Res .= $Tbl . GFFZ_NL;
+		if($gffz_Admin) $Res .= '<input type="button" class="ButtApplyCost" value="Применить" />' . GFFZ_NL;
 		$Res .= '</form>' . GFFZ_NL;
 
 		wp_enqueue_script('gffz_j002', GFFZ_FILES_URL . 'j002.js', array('jquery'), null, true);
@@ -354,9 +366,10 @@ if ($SLNN<11) for($SLNN=15-$SLNN;$SLNN>0;$SLNN--) $_POST['SN'] .= ".";
 	{
 		$TableName = $wpdb->prefix . GFFZ_USERS_TBL;
 		$Rate = $wpdb->get_var("SELECT Rate FROM {$TableName} WHERE UserID={$UserID};");
-		$Res1 = gffz_AddStatRecord($UserID, $mdlName, $sn, $crm, $_SERVER['REMOTE_ADDR'], $Rate, GFFZ_BASE_COST, -GFFZ_ADMIN_COST, 1);
+		$AdminCost = -gffz_GetFlashCost($mdlName);
+		$Res1 = gffz_AddStatRecord($UserID, $mdlName, $sn, $crm, $_SERVER['REMOTE_ADDR'], $Rate, GFFZ_BASE_COST, $AdminCost, 1);
 		if($UserID == GFFZ_ADMIN_USER_ID)
-			$Cost = -GFFZ_ADMIN_COST;
+			$Cost = $AdminCost;
 		else
 			$Cost = -GFFZ_BASE_COST * $Rate / 100;
 	}
@@ -420,7 +433,8 @@ function gffz_SendRequest_Action(&$Args)
 	{
 		$TableName = $wpdb->prefix . GFFZ_USERS_TBL;
 		$Rate = $wpdb->get_var("SELECT Rate FROM {$TableName} WHERE UserID={$UserID};");
-		$Res1 = gffz_AddStatRecord($UserID, $Args['MDLNAME'], $Args['SN'], $Args['CRM'], $_SERVER['REMOTE_ADDR'], $Rate, GFFZ_BASE_COST, -GFFZ_ADMIN_COST, 1);
+		$AdminCost = -gffz_GetFlashCost($Args['MDLNAME']);
+		$Res1 = gffz_AddStatRecord($UserID, $Args['MDLNAME'], $Args['SN'], $Args['CRM'], $_SERVER['REMOTE_ADDR'], $Rate, GFFZ_BASE_COST, $AdminCost, 1);
 		
 		$order = new WC_Order( $Args['ORDER_ID'] );
 		if(	$order)
@@ -439,12 +453,27 @@ function gffz_SendRequest_Action(&$Args)
 function gffz_PluginActivate()
 {
 	gffz_CreateTableUsers();
+	gffz_CreateTableModels();
 	gffz_CreateTableStat();
 	gffz_CreateTableStatFail();
 	gffz_CreateTablePluginConfig();
 	gffz_CreateTableRef();
 
+	update_option('gffz_db_version', GFFZ_PLUGIN_VERSION);
+
 	gffz_LoadConfig();
+}
+
+//---------------------------------------------------------
+// Создаёт/обновляет таблицы БД после обновления плагина.
+
+function gffz_Upgrade()
+{
+	if(get_option('gffz_db_version') === GFFZ_PLUGIN_VERSION) return;
+
+	gffz_CreateTableModels();
+
+	update_option('gffz_db_version', GFFZ_PLUGIN_VERSION);
 }
 
 //---------------------------------------------------------
@@ -465,6 +494,34 @@ function gffz_ModifyUsers()
 			if($Res === false) break;
 		}
 	if($Res !== false) echo 'success'; else echo 'fail';
+
+	exit;
+}
+
+//---------------------------------------------------------
+
+function gffz_ModifyModels()
+{
+	$Res = true;
+
+	while(1)
+	{
+		if(! current_user_can('manage_options')) {$Res = false; break;}
+		if(! isset($_POST['data']) || ! is_array($_POST['data'])) {$Res = false; break;}
+
+		foreach($_POST['data'] as $Model)
+		{
+			if(! is_array($Model) || ! isset($Model['Model'])) {$Res = false; break;}
+
+			$Cost = isset($Model['Cost']) ? $Model['Cost'] : '';
+
+			if(! gffz_SetModelCost($Model['Model'], $Cost)) {$Res = false; break;}
+		}
+
+		break;
+	}
+
+	if($Res) echo 'success'; else echo 'fail';
 
 	exit;
 }
@@ -578,7 +635,7 @@ function gffz_ModifyUserStat()
 
 	$User;
 	$Res = false;
-	$AdminCost = -GFFZ_ADMIN_COST;
+	$AdminCost = 0;
 	$TableStat = $wpdb->prefix . GFFZ_STAT_TBL;
 	$TableUser = $wpdb->prefix . GFFZ_USERS_TBL;
 
@@ -596,6 +653,7 @@ function gffz_ModifyUserStat()
 		$User = wp_get_current_user();
 		if(! $User->exists()) break;
 
+		$AdminCost = -gffz_GetFlashCost($_POST['Model']);
 		if($_POST['Rate'] < 0) $AdminCost = 0;
 
 		if($_POST['ID'] && $_POST['ID1'])

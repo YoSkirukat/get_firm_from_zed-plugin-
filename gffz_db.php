@@ -31,6 +31,24 @@ function gffz_CreateTableUsers()
 
 //---------------------------------------------------------
 
+function gffz_CreateTableModels()
+{
+	global $wpdb;
+
+	$TableName = $wpdb->prefix . GFFZ_MODELS_TBL;
+	$sql = "CREATE TABLE {$TableName} (
+		ID BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+		Model VARCHAR(191) NOT NULL,
+		Cost FLOAT NOT NULL,
+		PRIMARY KEY  (ID),
+		UNIQUE KEY Model (Model)
+		) DEFAULT CHARACTER SET {$wpdb->charset};";
+
+	dbDelta($sql);
+}
+
+//---------------------------------------------------------
+
 function gffz_CreateTableStat()
 {
 	global $wpdb;
@@ -270,6 +288,83 @@ function gffz_DB_Unlock()
 
 	$Res = $wpdb->get_var("SELECT RELEASE_LOCK('" . GFFZ_DB_LOCK . "');");
 	return $Res == 1 ? true : false;
+}
+
+//---------------------------------------------------------
+// Цены моделей прошивок (колонка Cost в таблице Models List).
+
+function gffz_GetModelCosts()
+{
+	global $wpdb;
+
+	$Res = array();
+	$TableName = $wpdb->prefix . GFFZ_MODELS_TBL;
+
+	$Records = $wpdb->get_results("SELECT Model, Cost FROM {$TableName};");
+	if(empty($Records)) return $Res;
+
+	foreach($Records as $Record)
+		$Res[$Record->Model] = (float)$Record->Cost;
+
+	return $Res;
+}
+
+//---------------------------------------------------------
+// Возвращает заданную цену модели или null, если цена не задана.
+
+function gffz_GetModelCost($Model)
+{
+	global $wpdb;
+
+	if(! is_string($Model)) return null;
+
+	$Model = trim($Model);
+	if($Model === '') return null;
+
+	$TableName = $wpdb->prefix . GFFZ_MODELS_TBL;
+	$Cost = $wpdb->get_var($wpdb->prepare("SELECT Cost FROM {$TableName} WHERE Model=%s;", $Model));
+
+	return is_null($Cost) ? null : (float)$Cost;
+}
+
+//---------------------------------------------------------
+// Стоимость прошивки для владельца сервиса.
+// Если цена модели не задана, используется GFFZ_ADMIN_COST.
+
+function gffz_GetFlashCost($Model)
+{
+	$Cost = gffz_GetModelCost($Model);
+	if(is_null($Cost) || $Cost <= 0) $Cost = GFFZ_ADMIN_COST;
+
+	return $Cost;
+}
+
+//---------------------------------------------------------
+// Сохраняет цену модели. Пустая (нулевая) цена удаляет запись,
+// после чего снова действует GFFZ_ADMIN_COST.
+
+function gffz_SetModelCost($Model, $Cost)
+{
+	global $wpdb;
+
+	if(! is_string($Model)) return false;
+	if(is_array($Cost) || is_object($Cost)) return false;
+
+	$Model = trim($Model);
+	if($Model === '') return false;
+
+	$ModelLen = function_exists('mb_strlen') ? mb_strlen($Model) : strlen($Model);
+	if($ModelLen > 191) return false;
+
+	$TableName = $wpdb->prefix . GFFZ_MODELS_TBL;
+	$Cost = (float)str_replace(',', '.', trim((string)$Cost));
+
+	if($Cost <= 0)
+		return $wpdb->delete($TableName, array('Model'=>$Model), array('%s')) !== false;
+
+	$Res = $wpdb->query($wpdb->prepare("INSERT INTO {$TableName} (Model, Cost) VALUES (%s, %f) ON DUPLICATE KEY UPDATE Cost=VALUES(Cost);", $Model, $Cost));
+
+	return $Res !== false;
 }
 
 //---------------------------------------------------------

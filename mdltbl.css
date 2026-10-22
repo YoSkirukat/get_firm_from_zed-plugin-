@@ -20,3 +20,22 @@ table.MdlTbl td
 	text-align: left;
 	padding: 5px;
 }
+
+table.MdlTbl td.MdlCost
+{
+	text-align: right;
+	white-space: nowrap;
+	width: 70px;
+}
+
+span.MdlCostDefault
+{
+	color: #808080;
+}
+
+input.MdlCostField
+{
+	width: 60px;
+	padding: 3px;
+	text-align: right;
+}

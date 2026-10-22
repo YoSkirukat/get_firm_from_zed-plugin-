@@ -26,7 +26,7 @@ jQuery(document).ready(function($){
 
 		if(DoRequest)
 		{
-			MdlName = Checked.closest('tr').children().eq(1).html();
+			MdlName = $.trim(Checked.closest('tr').children().eq(1).html());
 			Model = Checked.val();
 			CRUM = $('#CRUM').val();
 
