@@ -39,3 +39,23 @@ input.MdlCostField
 	padding: 3px;
 	text-align: right;
 }
+
+a.ButtExportModels
+{
+	display: inline-block;
+	margin-left: 10px;
+	padding: 3px 12px;
+	color: #ffffff;
+	background: #2271b1;
+	border: 1px solid #2271b1;
+	border-radius: 3px;
+	text-decoration: none;
+	vertical-align: middle;
+}
+
+a.ButtExportModels:hover
+{
+	color: #ffffff;
+	background: #135e96;
+	border-color: #135e96;
+}

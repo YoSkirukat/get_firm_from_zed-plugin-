@@ -21,6 +21,14 @@ jQuery(document).ready(function($){
 		return $.trim($(Row).children().eq(1).html());
 	};
 
+	var GetArticle = function(Row){
+		var Input = $(Row).find('input[name="MDL"]');
+		return Input.length ? $.trim(Input.val()) : '';
+	};
+
+	var Articles = (typeof gffz_ModelCost.Articles === 'object' && gffz_ModelCost.Articles) ? gffz_ModelCost.Articles : {};
+	var ArticlesSync = [];
+
 	var GetCost = function(Cell){
 		return $.trim($(Cell).text());
 	};
@@ -37,10 +45,29 @@ jQuery(document).ready(function($){
 		Cell = $(this).children().last();
 
 		if(Object.prototype.hasOwnProperty.call(gffz_ModelCost.Costs, Model))
+		{
 			Cell.text(gffz_ModelCost.Costs[Model]);
+
+			var Article = GetArticle(this);
+			var Known = Object.prototype.hasOwnProperty.call(Articles, Model) ? Articles[Model] : '';
+
+			if(Article !== '' && Known !== Article)
+				ArticlesSync.push({'Model': Model, 'Article': Article, 'Cost': gffz_ModelCost.Costs[Model]});
+		}
 		else
 			SetDefault(Cell);
 	});
+
+	// Однократная привязка артикулов к уже сохранённым ценам.
+	if(ArticlesSync.length)
+	{
+		$.post(gffz_ModelCost.Url, {action: 'gffz_ModifyModels', data: ArticlesSync}, function(Res){
+			if(Res != 'success') return;
+
+			$.each(ArticlesSync, function(i, Item){ Articles[Item.Model] = Item.Article; });
+			ArticlesSync = [];
+		});
+	}
 
 	$('.ButtApplyCost').prop('disabled', true);
 
@@ -95,13 +122,14 @@ jQuery(document).ready(function($){
 		var Modified = $('tr[id = modified]');
 
 		Modified.each(function(){
-			ModelCostData.push({'Model': GetModel(this), 'Cost': GetCost($(this).children('.MdlCost'))});
+			ModelCostData.push({'Model': GetModel(this), 'Article': GetArticle(this), 'Cost': GetCost($(this).children('.MdlCost'))});
 		});
 
 		$.post(gffz_ModelCost.Url, {action: 'gffz_ModifyModels', data: ModelCostData}, function(Res){
 			if(Res == 'success')
 			{
 				$('.ButtApplyCost').prop('disabled', true);
+				$('tr[id = modified]').each(function(){ Articles[GetModel(this)] = GetArticle(this); });
 				$('tr[id = modified]').removeAttr('id');
 				gffz_ModelCostModified = false;
 				alert('Операция выполнена. Изменено записей: ' + Modified.length);

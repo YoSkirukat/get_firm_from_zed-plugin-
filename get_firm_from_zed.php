@@ -1,9 +1,9 @@
-﻿<?php
+<?php
 
 /*
 Plugin Name: get_firm_from_zed
 Description: Plugin for getting firmware from Zed.
-Version: 1.16
+Version: 1.18
 Author: Optimus
 */
 
@@ -55,6 +55,7 @@ add_filter('the_content', 'gffz_ContentFilter');
 
 add_action('wp_ajax_gffz_ModifyUsers', 'gffz_ModifyUsers');
 add_action('wp_ajax_gffz_ModifyModels', 'gffz_ModifyModels');
+add_action('wp_ajax_gffz_ExportModels', 'gffz_ExportModels');
 add_action('wp_ajax_gffz_SendRequest', 'gffz_SendRequest');
 add_action('wp_gffz_SendRequest_Action', 'gffz_SendRequest_Action');
 add_action('wp_ajax_nopriv_gffz_SendRequest', 'gffz_nopriv_SendRequest');
@@ -227,7 +228,7 @@ function gffz_GetSamsungForm()
 		if($gffz_Admin)
 		{
 			wp_enqueue_script('gffz_mdltbl_cost', GFFZ_FILES_URL . 'mdltbl_cost.js', array('jquery', 'gffz_mdltbl'), null, true);
-			wp_localize_script('gffz_mdltbl_cost', 'gffz_ModelCost', array('Url'=>admin_url('admin-ajax.php'), 'Costs'=>(object)gffz_GetModelCosts(), 'Default'=>GFFZ_ADMIN_COST));
+			wp_localize_script('gffz_mdltbl_cost', 'gffz_ModelCost', array('Url'=>admin_url('admin-ajax.php'), 'Costs'=>(object)gffz_GetModelCosts(), 'Articles'=>(object)gffz_GetModelArticles(), 'Default'=>GFFZ_ADMIN_COST));
 		}
 
 		$Res .= '<form action="" method="post" id="SendForm"><br />' . GFFZ_NL;
@@ -238,7 +239,13 @@ function gffz_GetSamsungForm()
 		$Res .= '<input type="submit" value="Получить" class="button-primary"/><br /><br />' . GFFZ_NL;
 		$Res .= 'Filter: &nbsp; &nbsp; <input type="text" id="filter" maxlength="30" /><br /><br />' . GFFZ_NL;
 		$Res .= $Tbl . GFFZ_NL;
-		if($gffz_Admin) $Res .= '<input type="button" class="ButtApplyCost" value="Применить" />' . GFFZ_NL;
+		if($gffz_Admin)
+		{
+			$ExportUrl = wp_nonce_url(admin_url('admin-ajax.php?action=gffz_ExportModels'), 'gffz_export_models');
+
+			$Res .= '<input type="button" class="ButtApplyCost" value="Применить" />' . GFFZ_NL;
+			$Res .= '<a class="ButtExportModels" href="' . esc_url($ExportUrl) . '" title="Скачать все модели с ценами (CSV для Excel)">Экспорт в CSV</a>' . GFFZ_NL;
+		}
 		$Res .= '</form>' . GFFZ_NL;
 
 		wp_enqueue_script('gffz_j002', GFFZ_FILES_URL . 'j002.js', array('jquery'), null, true);
@@ -366,7 +373,7 @@ if ($SLNN<11) for($SLNN=15-$SLNN;$SLNN>0;$SLNN--) $_POST['SN'] .= ".";
 	{
 		$TableName = $wpdb->prefix . GFFZ_USERS_TBL;
 		$Rate = $wpdb->get_var("SELECT Rate FROM {$TableName} WHERE UserID={$UserID};");
-		$AdminCost = -gffz_GetFlashCost($mdlName);
+		$AdminCost = -gffz_GetFlashCost($mdlName, $mdl);
 		$Res1 = gffz_AddStatRecord($UserID, $mdlName, $sn, $crm, $_SERVER['REMOTE_ADDR'], $Rate, GFFZ_BASE_COST, $AdminCost, 1);
 		if($UserID == GFFZ_ADMIN_USER_ID)
 			$Cost = $AdminCost;
@@ -381,10 +388,76 @@ if ($SLNN<11) for($SLNN=15-$SLNN;$SLNN>0;$SLNN--) $_POST['SN'] .= ".";
 }
 
 //---------------------------------------------------------
+// Артикул (SKU) позиции заказа WooCommerce.
+// Нужен, когда в запросе на генерацию передан не артикул модели,
+// а, например, идентификатор вариации.
+
+function gffz_GetOrderArticle($OrderID)
+{
+	$Res = '';
+
+	while(1)
+	{
+		if(! function_exists('wc_get_order')) break;
+
+		$OrderID = (int)$OrderID;
+		if($OrderID <= 0) break;
+
+		$Order = wc_get_order($OrderID);
+		if(! $Order) break;
+
+		foreach($Order->get_items() as $Item)
+		{
+			if(! method_exists($Item, 'get_product')) continue;
+
+			$Product = $Item->get_product();
+			if(! $Product || ! method_exists($Product, 'get_sku')) continue;
+
+			$Sku = trim((string)$Product->get_sku());
+			if($Sku === '') continue;
+
+			$Res = $Sku;
+			break;
+		}
+
+		break;
+	}
+
+	return $Res;
+}
+
+//---------------------------------------------------------
+// Артикул (SKU) товара WooCommerce по его ID.
+
+function gffz_GetProductArticle($ProductID)
+{
+	$Res = '';
+
+	while(1)
+	{
+		if(! function_exists('wc_get_product')) break;
+
+		$ProductID = (int)$ProductID;
+		if($ProductID <= 0) break;
+
+		$Product = wc_get_product($ProductID);
+		if(! $Product || ! method_exists($Product, 'get_sku')) break;
+
+		$Res = trim((string)$Product->get_sku());
+		break;
+	}
+
+	return $Res;
+}
+
+//---------------------------------------------------------
 
 function gffz_SendRequest_Action(&$Args)
 {
 	global $wpdb;
+
+	// Страховка: колонка Article должна существовать до запросов цены.
+	gffz_Upgrade();
 
 	$UserID = GFFZ_ADMIN_USER_ID;
 	$Res = false;
@@ -433,7 +506,14 @@ function gffz_SendRequest_Action(&$Args)
 	{
 		$TableName = $wpdb->prefix . GFFZ_USERS_TBL;
 		$Rate = $wpdb->get_var("SELECT Rate FROM {$TableName} WHERE UserID={$UserID};");
-		$AdminCost = -gffz_GetFlashCost($Args['MDLNAME']);
+		$Article = $Args['MDL'];
+		if(is_null(gffz_GetArticleCost($Article)))
+		{
+			$Sku = gffz_GetOrderArticle(isset($Args['ORDER_ID']) ? $Args['ORDER_ID'] : 0);
+			if($Sku === '') $Sku = gffz_GetProductArticle($Article);
+			if($Sku !== '') $Article = $Sku;
+		}
+		$AdminCost = -gffz_GetFlashCost($Args['MDLNAME'], $Article);
 		$Res1 = gffz_AddStatRecord($UserID, $Args['MDLNAME'], $Args['SN'], $Args['CRM'], $_SERVER['REMOTE_ADDR'], $Rate, GFFZ_BASE_COST, $AdminCost, 1);
 		
 		$order = new WC_Order( $Args['ORDER_ID'] );
@@ -515,14 +595,88 @@ function gffz_ModifyModels()
 			if(! is_array($Model) || ! isset($Model['Model'])) {$Res = false; break;}
 
 			$Cost = isset($Model['Cost']) ? $Model['Cost'] : '';
+			$Article = isset($Model['Article']) ? $Model['Article'] : '';
 
-			if(! gffz_SetModelCost($Model['Model'], $Cost)) {$Res = false; break;}
+			if(! gffz_SetModelCost($Model['Model'], $Cost, $Article)) {$Res = false; break;}
 		}
 
 		break;
 	}
 
 	if($Res) echo 'success'; else echo 'fail';
+
+	exit;
+}
+
+//---------------------------------------------------------
+// Поле CSV: всегда в кавычках, внутренние кавычки удваиваются.
+
+function gffz_CSVField($Value)
+{
+	return '"' . str_replace('"', '""', (string)$Value) . '"';
+}
+
+//---------------------------------------------------------
+// Формирует CSV (UTF-8 с BOM, разделитель ';') со списком моделей.
+// Цена берётся по названию модели, затем по артикулу (value).
+
+function gffz_BuildModelsCSV($Rows, $Costs = array(), $ArticleCosts = array())
+{
+	$Res = "\xEF\xBB\xBF" . gffz_CSVField('ID') . ';' . gffz_CSVField('Модель') . ';' . gffz_CSVField('Цена') . "\r\n";
+
+	if(! is_array($Rows)) return $Res;
+	if(! is_array($Costs)) $Costs = array();
+	if(! is_array($ArticleCosts)) $ArticleCosts = array();
+
+	foreach($Rows as $Row)
+	{
+		$Cost = '';
+
+		if(is_array($Row))
+		{
+			$ID = isset($Row['ID']) ? (string)$Row['ID'] : '';
+			$Name = isset($Row['Name']) ? (string)$Row['Name'] : '';
+
+			if($Name !== '' && isset($Costs[$Name]))
+				$Cost = $Costs[$Name];
+			else if($ID !== '' && isset($ArticleCosts[$ID]))
+				$Cost = $ArticleCosts[$ID];
+		}
+		else
+			continue;
+
+		if($Cost !== '' && ! is_null($Cost)) $Cost = number_format((float)$Cost, 2, ',', '');
+
+		$Res .= gffz_CSVField($ID) . ';' . gffz_CSVField($Name) . ';' . gffz_CSVField($Cost) . "\r\n";
+	}
+
+	return $Res;
+}
+
+//---------------------------------------------------------
+// Экспорт списка моделей с ценами в CSV (скачивание файла).
+
+function gffz_ExportModels()
+{
+	while(1)
+	{
+		if(! current_user_can('manage_options')) wp_die('Доступ запрещён.', '', array('response'=>403));
+
+		check_admin_referer('gffz_export_models');
+
+		$Tbl = gffz_GetTBL();
+		if($Tbl === false) wp_die('Не удалось получить список моделей сервиса.', '', array('response'=>503));
+
+		$CSV = gffz_BuildModelsCSV(gffz_ParseModelList($Tbl), gffz_GetModelCosts(), gffz_GetArticleCosts());
+		$FileName = 'gffz_models_' . date('Y-m-d') . '.csv';
+
+		nocache_headers();
+		header('Content-Type: text/csv; charset=utf-8');
+		header('Content-Disposition: attachment; filename="' . $FileName . '"');
+
+		echo $CSV;
+		break;
+	}
 
 	exit;
 }

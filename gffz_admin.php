@@ -264,7 +264,9 @@ function gffz_GetCommStat()
 }
 
 //---------------------------------------------------------
-// Выбирает продажи за период. Пополнения баланса (стоимость 0) не входят.
+// Выбирает продажи за период.
+// Пополнения баланса не входят: у них отрицательная ставка (Rate < 0),
+// а также в модели/S/N встречается слово «Пополнение».
 
 function gffz_GetReportRecords($DateFrom, $DateTo)
 {
@@ -278,11 +280,17 @@ function gffz_GetReportRecords($DateFrom, $DateTo)
 	if($DateNext === false) return $Res;
 	$DateNext = $DateNext->modify('+1 day')->format('Y-m-d');
 
+	$PopLike = '%' . $wpdb->esc_like('Пополнение') . '%';
+
 	$Records = $wpdb->get_results($wpdb->prepare(
 		"SELECT ID, UserID, Model, SN, Date, AdminCost FROM {$StatTable}
-		 WHERE Date >= %s AND Date < %s AND AdminCost <> 0
+		 WHERE Date >= %s AND Date < %s
+		   AND AdminCost <> 0
+		   AND Rate >= 0
+		   AND Model NOT LIKE %s
+		   AND SN NOT LIKE %s
 		 ORDER BY Date ASC, ID ASC;",
-		$DateFrom . ' 00:00:00', $DateNext . ' 00:00:00'));
+		$DateFrom . ' 00:00:00', $DateNext . ' 00:00:00', $PopLike, $PopLike));
 	if(empty($Records)) return $Res;
 
 	$Logins = array();

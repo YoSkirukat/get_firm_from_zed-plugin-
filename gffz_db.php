@@ -40,8 +40,10 @@ function gffz_CreateTableModels()
 		ID BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
 		Model VARCHAR(191) NOT NULL,
 		Cost FLOAT NOT NULL,
+		Article VARCHAR(64) NOT NULL DEFAULT '',
 		PRIMARY KEY  (ID),
-		UNIQUE KEY Model (Model)
+		UNIQUE KEY Model (Model),
+		KEY Article (Article)
 		) DEFAULT CHARACTER SET {$wpdb->charset};";
 
 	dbDelta($sql);
@@ -311,30 +313,183 @@ function gffz_GetModelCosts()
 }
 
 //---------------------------------------------------------
-// Возвращает заданную цену модели или null, если цена не задана.
+// Артикулы моделей (значения value в таблице Models List).
 
-function gffz_GetModelCost($Model)
+function gffz_GetModelArticles()
 {
 	global $wpdb;
 
-	if(! is_string($Model)) return null;
+	$Res = array();
+	$TableName = $wpdb->prefix . GFFZ_MODELS_TBL;
 
-	$Model = trim($Model);
-	if($Model === '') return null;
+	$Records = $wpdb->get_results("SELECT Model, Article FROM {$TableName} WHERE Article<>'';");
+	if(empty($Records)) return $Res;
+
+	foreach($Records as $Record)
+		$Res[$Record->Model] = (string)$Record->Article;
+
+	return $Res;
+}
+
+//---------------------------------------------------------
+// Карта "артикул -> цена" (значения value в таблице Models List).
+
+function gffz_GetArticleCosts()
+{
+	global $wpdb;
+
+	$Res = array();
+	$TableName = $wpdb->prefix . GFFZ_MODELS_TBL;
+
+	$Records = $wpdb->get_results("SELECT Article, Cost FROM {$TableName} WHERE Article<>'';");
+	if(empty($Records)) return $Res;
+
+	foreach($Records as $Record)
+		$Res[(string)$Record->Article] = (float)$Record->Cost;
+
+	return $Res;
+}
+
+//---------------------------------------------------------
+// Разбирает HTML-таблицу Models List в список моделей:
+// array(array('ID'=>артикул, 'Name'=>название), ...).
+
+function gffz_ParseModelList($Tbl)
+{
+	$Res = array();
+
+	while(1)
+	{
+		if(! is_string($Tbl) || $Tbl === '') break;
+
+		$Pattern = '/<input[^>]*name=["\']MDL["\'][^>]*>.*?<td[^>]*>(.*?)<\/td>/is';
+		if(! preg_match_all($Pattern, $Tbl, $Matches, PREG_SET_ORDER)) break;
+
+		foreach($Matches as $Match)
+		{
+			if(! preg_match('/value=["\']([^"\']*)["\']/i', $Match[0], $Code)) continue;
+
+			$ID = trim(html_entity_decode($Code[1], ENT_QUOTES, 'UTF-8'));
+			$Name = trim(html_entity_decode(strip_tags($Match[1]), ENT_QUOTES, 'UTF-8'));
+
+			if($ID === '' && $Name === '') continue;
+
+			$Res[] = array('ID'=>$ID, 'Name'=>$Name);
+		}
+
+		break;
+	}
+
+	return $Res;
+}
+
+//---------------------------------------------------------
+// Название модели по её артикулу (код из таблицы Models List).
+// Нужно для цен, сохранённых до появления колонки Article:
+// позволяет связать артикул вариации товара с названием модели.
+
+function gffz_GetArticleModelName($Article)
+{
+	$Res = '';
+
+	while(1)
+	{
+		$Article = is_string($Article) ? trim($Article) : '';
+		if($Article === '') break;
+		if(! function_exists('gffz_GetTBL')) break;
+
+		$Map = get_transient('gffz_article_map');
+
+		if(! is_array($Map))
+		{
+			$Map = array();
+			$Tbl = gffz_GetTBL();
+
+			if($Tbl !== false)
+			{
+				foreach(gffz_ParseModelList($Tbl) as $Row)
+				{
+					$Code = $Row['ID'];
+					$Name = $Row['Name'];
+
+					if($Code !== '' && $Name !== '' && ! isset($Map[$Code])) $Map[$Code] = $Name;
+				}
+			}
+
+			// Пустой результат кэшируется ненадолго, чтобы не тормозить продажи.
+			set_transient('gffz_article_map', $Map, empty($Map) ? 300 : 3600);
+		}
+
+		if(isset($Map[$Article])) $Res = $Map[$Article];
+		break;
+	}
+
+	return $Res;
+}
+
+//---------------------------------------------------------
+// Цена по артикулу без обращения к таблице Models List.
+// Возвращает null, если артикул ещё не привязан к цене.
+
+function gffz_GetArticleCost($Article)
+{
+	global $wpdb;
+
+	$Article = is_string($Article) ? trim($Article) : '';
+	if($Article === '') return null;
 
 	$TableName = $wpdb->prefix . GFFZ_MODELS_TBL;
-	$Cost = $wpdb->get_var($wpdb->prepare("SELECT Cost FROM {$TableName} WHERE Model=%s;", $Model));
+	$Cost = $wpdb->get_var($wpdb->prepare("SELECT Cost FROM {$TableName} WHERE Article=%s AND Article<>'' LIMIT 1;", $Article));
 
 	return is_null($Cost) ? null : (float)$Cost;
+}
+
+//---------------------------------------------------------
+// Возвращает заданную цену модели или null, если цена не задана.
+// Модель ищется по названию, затем (если задан) по артикулу.
+
+function gffz_GetModelCost($Model, $Article = '')
+{
+	global $wpdb;
+
+	$TableName = $wpdb->prefix . GFFZ_MODELS_TBL;
+	$Model = is_string($Model) ? trim($Model) : '';
+	$Article = is_string($Article) ? trim($Article) : '';
+
+	if($Model !== '')
+	{
+		$Cost = $wpdb->get_var($wpdb->prepare("SELECT Cost FROM {$TableName} WHERE Model=%s;", $Model));
+		if(! is_null($Cost)) return (float)$Cost;
+	}
+
+	if($Article !== '')
+	{
+		$Cost = $wpdb->get_var($wpdb->prepare("SELECT Cost FROM {$TableName} WHERE Article=%s AND Article<>'' LIMIT 1;", $Article));
+		if(! is_null($Cost)) return (float)$Cost;
+
+		// Артикул ещё не сохранён: ищем название модели по коду.
+		$Name = gffz_GetArticleModelName($Article);
+		if($Name !== '')
+		{
+			$Cost = $wpdb->get_var($wpdb->prepare("SELECT Cost FROM {$TableName} WHERE Model=%s;", $Name));
+			if(! is_null($Cost))
+			{
+				gffz_SetModelCost($Name, (float)$Cost, $Article);
+				return (float)$Cost;
+			}
+		}
+	}
+
+	return null;
 }
 
 //---------------------------------------------------------
 // Стоимость прошивки для владельца сервиса.
 // Если цена модели не задана, используется GFFZ_ADMIN_COST.
 
-function gffz_GetFlashCost($Model)
+function gffz_GetFlashCost($Model, $Article = '')
 {
-	$Cost = gffz_GetModelCost($Model);
+	$Cost = gffz_GetModelCost($Model, $Article);
 	if(is_null($Cost) || $Cost <= 0) $Cost = GFFZ_ADMIN_COST;
 
 	return $Cost;
@@ -343,8 +498,10 @@ function gffz_GetFlashCost($Model)
 //---------------------------------------------------------
 // Сохраняет цену модели. Пустая (нулевая) цена удаляет запись,
 // после чего снова действует GFFZ_ADMIN_COST.
+// Артикул сохраняется вместе с ценой; пустой артикул
+// не затирает ранее сохранённый.
 
-function gffz_SetModelCost($Model, $Cost)
+function gffz_SetModelCost($Model, $Cost, $Article = '')
 {
 	global $wpdb;
 
@@ -357,13 +514,18 @@ function gffz_SetModelCost($Model, $Cost)
 	$ModelLen = function_exists('mb_strlen') ? mb_strlen($Model) : strlen($Model);
 	if($ModelLen > 191) return false;
 
+	$Article = is_string($Article) ? trim($Article) : '';
+	$ArticleLen = function_exists('mb_strlen') ? mb_strlen($Article) : strlen($Article);
+	if($ArticleLen > 64)
+		$Article = function_exists('mb_substr') ? mb_substr($Article, 0, 64) : substr($Article, 0, 64);
+
 	$TableName = $wpdb->prefix . GFFZ_MODELS_TBL;
 	$Cost = (float)str_replace(',', '.', trim((string)$Cost));
 
 	if($Cost <= 0)
 		return $wpdb->delete($TableName, array('Model'=>$Model), array('%s')) !== false;
 
-	$Res = $wpdb->query($wpdb->prepare("INSERT INTO {$TableName} (Model, Cost) VALUES (%s, %f) ON DUPLICATE KEY UPDATE Cost=VALUES(Cost);", $Model, $Cost));
+	$Res = $wpdb->query($wpdb->prepare("INSERT INTO {$TableName} (Model, Cost, Article) VALUES (%s, %f, %s) ON DUPLICATE KEY UPDATE Cost=VALUES(Cost), Article=IF(VALUES(Article)<>'', VALUES(Article), Article);", $Model, $Cost, $Article));
 
 	return $Res !== false;
 }
