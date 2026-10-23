@@ -69,7 +69,8 @@ function gffz_CreateTableStat()
 		First BOOL NOT NULL,
 		Success BOOL NOT NULL,
 		Archive BOOL NOT NULL,
-		PRIMARY KEY  (ID)
+		PRIMARY KEY  (ID),
+		KEY Date (Date)
 		) DEFAULT CHARACTER SET {$wpdb->charset};";
 
 	dbDelta($sql);

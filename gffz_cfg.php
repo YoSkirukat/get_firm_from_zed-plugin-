@@ -4,7 +4,7 @@
 
 global $wpdb;
 
-define('GFFZ_PLUGIN_VERSION', '1.15');
+define('GFFZ_PLUGIN_VERSION', '1.16');
 define('GFFZ_USER_CFG_FILE', 'gffz_user_cfg.php');
 define('GFFZ_FILES_URL', WP_PLUGIN_URL . '/get_firm_from_zed/');
 define('GFFZ_FILES_PATH', __DIR__ . '/');

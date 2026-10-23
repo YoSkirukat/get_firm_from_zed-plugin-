@@ -1,0 +1,123 @@
+.ReportFilter
+{
+	margin: 0 0 15px;
+	padding: 10px 12px;
+	background: #f4f7f9;
+	border: 1px solid #dbe3e8;
+	border-radius: 3px;
+}
+
+.ReportFilterTitle
+{
+	font-weight: 600;
+	margin-right: 14px;
+}
+
+.ReportFilter label
+{
+	margin-right: 12px;
+	white-space: nowrap;
+}
+
+.ReportFilter input[type="date"]
+{
+	padding: 4px;
+}
+
+.ReportFilter input[type="submit"]
+{
+	margin-left: 4px;
+	padding: 4px 14px;
+	cursor: pointer;
+}
+
+.ReportHint
+{
+	margin: 0 0 15px;
+	padding: 10px 12px;
+	color: #555;
+	background: #fafafa;
+	border-left: 3px solid #c0c0c0;
+}
+
+.ReportError
+{
+	margin: 0 0 15px;
+	padding: 10px 12px;
+	color: #a32020;
+	background: #fdf3f3;
+	border-left: 3px solid #d64545;
+}
+
+.ReportSummary
+{
+	margin: 0 0 15px;
+	padding: 8px 12px;
+	background: #eef4f8;
+	border-left: 3px solid #5b9bd5;
+}
+
+.ReportSep
+{
+	margin: 0 10px;
+	color: #9aa7b0;
+}
+
+h3.ReportHdr
+{
+	margin: 20px 0 8px;
+	font-size: 15px;
+	font-weight: 600;
+}
+
+table.ReportTbl
+{
+	width: 100%;
+	margin: 0 0 10px;
+	border-collapse: collapse;
+	font-size: 12px;
+}
+
+table.ReportTbl th
+{
+	padding: 6px 8px;
+	text-align: left;
+	background-color: #c0c0c0;
+	font-weight: 600;
+}
+
+table.ReportTbl td
+{
+	padding: 5px 8px;
+	border-bottom: 1px solid #e4e9ec;
+	vertical-align: top;
+}
+
+table.ReportTbl tbody tr:nth-child(even)
+{
+	background: #f2f5f7;
+}
+
+table.ReportTbl th.Num,
+table.ReportTbl td.Num
+{
+	text-align: right;
+	white-space: nowrap;
+}
+
+table.ReportTbl td.Date
+{
+	white-space: nowrap;
+}
+
+table.ReportTbl tr.Total td
+{
+	font-weight: 700;
+	background: #dfe6e9;
+	border-top: 2px solid #c0c0c0;
+}
+
+table.ReportTbl tr.Total:hover td
+{
+	background: #dfe6e9;
+}

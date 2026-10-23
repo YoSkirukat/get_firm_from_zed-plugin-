@@ -3,7 +3,7 @@
 /*
 Plugin Name: get_firm_from_zed
 Description: Plugin for getting firmware from Zed.
-Version: 1.15
+Version: 1.16
 Author: Optimus
 */
 
@@ -472,6 +472,7 @@ function gffz_Upgrade()
 	if(get_option('gffz_db_version') === GFFZ_PLUGIN_VERSION) return;
 
 	gffz_CreateTableModels();
+	gffz_CreateTableStat();
 
 	update_option('gffz_db_version', GFFZ_PLUGIN_VERSION);
 }

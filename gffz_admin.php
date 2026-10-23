@@ -47,6 +47,10 @@ function gffz_ExecCMD_A()
 			$Res = gffz_GetCommStat();
 			break;
 
+		case 'Report':
+			$Res = gffz_GetReport();
+			break;
+
 		case 'GetUserStat':
 			$Res = gffz_GetUserStat_A();
 			break;
@@ -73,6 +77,7 @@ function gffz_CreatePanel_A()
 {
 	$Res = '<div style="margin: 0px 0px 15px;">';
 	$Res .= '<form action="" method="post" style="display: inline-block;"><input type="hidden" name="CMD" value="GetCommStat" /><input type="submit" value="Статистика" /></form>' . GFFZ_NL;
+	$Res .= '<form action="" method="post" style="display: inline-block;"><input type="hidden" name="CMD" value="Report" /><input type="submit" value="Отчёт" /></form>' . GFFZ_NL;
 	$Res .= '<form action="" method="post" style="display: inline-block;"><input type="hidden" name="CMD" value="GetUsers" /><input type="submit" value="Пользователи" /></form>' . GFFZ_NL;
 	$Res .= '<form action="" method="post" style="display: inline-block;"><input type="hidden" name="CMD" value="CleanUsers" /><input type="submit" value="Очистить" /></form>' . GFFZ_NL;
 	$Res .= '<form action="" method="post" style="display: inline-block;"><input type="hidden" name="CMD" value="Samsung" /><input type="submit" value="Samsung" /></form>' . GFFZ_NL;
@@ -254,6 +259,236 @@ function gffz_GetCommStat()
 	$Res .= '<input type="button" class="ButtArch" value="В архив" />' . GFFZ_NL;
 	$BeginBalans = isset($UsersData[GFFZ_OWNER_ID]) ? $UsersData[GFFZ_OWNER_ID] : 0;
 	$Res .= '<input type="hidden" id="gffz_BeginBalans" value="' . $BeginBalans . '" />' . GFFZ_NL;
+
+	return $Res;
+}
+
+//---------------------------------------------------------
+// Выбирает продажи за период. Пополнения баланса (стоимость 0) не входят.
+
+function gffz_GetReportRecords($DateFrom, $DateTo)
+{
+	global $wpdb;
+
+	$Res = array();
+	$StatTable = $wpdb->prefix . GFFZ_STAT_TBL;
+	$UserTable = $wpdb->prefix . GFFZ_USERS_TBL;
+
+	$DateNext = DateTime::createFromFormat('!Y-m-d', $DateTo);
+	if($DateNext === false) return $Res;
+	$DateNext = $DateNext->modify('+1 day')->format('Y-m-d');
+
+	$Records = $wpdb->get_results($wpdb->prepare(
+		"SELECT ID, UserID, Model, SN, Date, AdminCost FROM {$StatTable}
+		 WHERE Date >= %s AND Date < %s AND AdminCost <> 0
+		 ORDER BY Date ASC, ID ASC;",
+		$DateFrom . ' 00:00:00', $DateNext . ' 00:00:00'));
+	if(empty($Records)) return $Res;
+
+	$Logins = array();
+	$Users = $wpdb->get_results("SELECT UserID, Login FROM {$UserTable};");
+	if(! empty($Users))
+		foreach($Users as $User) $Logins[(int)$User->UserID] = $User->Login;
+
+	foreach($Records as $Record)
+	{
+		$UserID = (int)$Record->UserID;
+		$User = isset($Logins[$UserID]) ? (string)$Logins[$UserID] : '';
+
+		if($User === '')
+		{
+			$WP_User = get_user_by('id', $UserID);
+			if($WP_User) $User = $WP_User->data->display_name;
+		}
+
+		if($User === '') $User = 'ID ' . $UserID;
+
+		$Res[] = array(
+			'ID' => (int)$Record->ID,
+			'UserID' => $UserID,
+			'User' => $User,
+			'Model' => $Record->Model,
+			'SN' => $Record->SN,
+			'Date' => $Record->Date,
+			'Cost' => abs((float)$Record->AdminCost),
+		);
+	}
+
+	return $Res;
+}
+
+//---------------------------------------------------------
+// Считает итоги и группировки по моделям и пользователям.
+
+function gffz_BuildReport($Records)
+{
+	$Models = array();
+	$Users = array();
+	$Count = 0;
+	$Sum = 0.0;
+
+	foreach($Records as $Record)
+	{
+		$Cost = (float)$Record['Cost'];
+		$Model = $Record['Model'];
+		$UserID = $Record['UserID'];
+		$User = $Record['User'];
+
+		++$Count;
+		$Sum += $Cost;
+
+		if(! isset($Models[$Model])) $Models[$Model] = array('Model'=>$Model, 'Count'=>0, 'Sum'=>0.0);
+		++$Models[$Model]['Count'];
+		$Models[$Model]['Sum'] += $Cost;
+
+		if(! isset($Users[$UserID])) $Users[$UserID] = array('User'=>$User, 'Count'=>0, 'Sum'=>0.0);
+		++$Users[$UserID]['Count'];
+		$Users[$UserID]['Sum'] += $Cost;
+	}
+
+	$Models = array_values($Models);
+	usort($Models, function($A, $B)
+	{
+		if(abs($A['Sum'] - $B['Sum']) < 0.005) return strcmp($A['Model'], $B['Model']);
+		return ($A['Sum'] > $B['Sum']) ? -1 : 1;
+	});
+
+	$Users = array_values($Users);
+	usort($Users, function($A, $B)
+	{
+		if(abs($A['Sum'] - $B['Sum']) < 0.005) return strcmp($A['User'], $B['User']);
+		return ($A['Sum'] > $B['Sum']) ? -1 : 1;
+	});
+
+	return array('Count'=>$Count, 'Sum'=>$Sum, 'Records'=>$Records, 'Models'=>$Models, 'Users'=>$Users);
+}
+
+//---------------------------------------------------------
+// Проверяет дату вида ГГГГ-ММ-ДД. Возвращает её или false.
+
+function gffz_ReportDate($Value)
+{
+	if(! is_string($Value)) return false;
+
+	$Value = trim($Value);
+	if(! preg_match('/^(\d{4})-(\d{2})-(\d{2})$/', $Value, $Match)) return false;
+	if(! checkdate((int)$Match[2], (int)$Match[3], (int)$Match[1])) return false;
+
+	return $Value;
+}
+
+//---------------------------------------------------------
+
+function gffz_FormatMoney($Value)
+{
+	return number_format((float)$Value, 2, '.', ' ');
+}
+
+//---------------------------------------------------------
+
+function gffz_FormatReportDate($Value)
+{
+	$Date = DateTime::createFromFormat('!Y-m-d', $Value);
+	return $Date ? $Date->format('d.m.Y') : $Value;
+}
+
+//---------------------------------------------------------
+
+function gffz_FormatReportDateTime($Value)
+{
+	$Date = DateTime::createFromFormat('Y-m-d H:i:s', $Value);
+	return $Date ? $Date->format('d.m.Y H:i') : $Value;
+}
+
+//---------------------------------------------------------
+// Отчёт по продажам за выбранный период.
+
+function gffz_GetReport()
+{
+	wp_enqueue_style('gffz_s006', GFFZ_FILES_URL . 's006.css');
+
+	$DateFrom = isset($_POST['DateFrom']) ? gffz_ReportDate($_POST['DateFrom']) : false;
+	$DateTo = isset($_POST['DateTo']) ? gffz_ReportDate($_POST['DateTo']) : false;
+	$FromVal = ($DateFrom === false) ? '' : $DateFrom;
+	$ToVal = ($DateTo === false) ? '' : $DateTo;
+	$Res = '';
+
+	$Res .= '<form action="" method="post" class="ReportFilter">' . GFFZ_NL;
+	$Res .= '<span class="ReportFilterTitle">Отчёт по продажам</span>' . GFFZ_NL;
+	$Res .= '<label>с&nbsp;<input type="date" name="DateFrom" value="' . esc_attr($FromVal) . '" /></label>' . GFFZ_NL;
+	$Res .= '<label>по&nbsp;<input type="date" name="DateTo" value="' . esc_attr($ToVal) . '" /></label>' . GFFZ_NL;
+	$Res .= '<input type="submit" value="Сформировать" />' . GFFZ_NL;
+	$Res .= '<input type="hidden" name="CMD" value="Report" />' . GFFZ_NL;
+	$Res .= '</form>' . GFFZ_NL;
+
+	// Пока период не выбран, отчёт не формируется.
+	if(! isset($_POST['DateFrom']) || ! isset($_POST['DateTo']))
+		return $Res . '<div class="ReportHint">Выберите период и нажмите «Сформировать».</div>' . GFFZ_NL;
+
+	if($DateFrom === false || $DateTo === false)
+		return $Res . '<div class="ReportError">Укажите корректные даты начала и окончания периода.</div>' . GFFZ_NL;
+
+	if($DateFrom > $DateTo)
+		return $Res . '<div class="ReportError">Дата начала периода больше даты окончания.</div>' . GFFZ_NL;
+
+	$Records = gffz_GetReportRecords($DateFrom, $DateTo);
+	if(empty($Records))
+		return $Res . '<div class="ReportHint">За выбранный период продаж не найдено.</div>' . GFFZ_NL;
+
+	$Report = gffz_BuildReport($Records);
+
+	$Res .= '<div class="ReportSummary">';
+	$Res .= 'Период: <b>' . esc_html(gffz_FormatReportDate($DateFrom)) . '&nbsp;&mdash;&nbsp;' . esc_html(gffz_FormatReportDate($DateTo)) . '</b>';
+	$Res .= '<span class="ReportSep">|</span>Записей: <b>' . $Report['Count'] . '</b>';
+	$Res .= '<span class="ReportSep">|</span>Сумма: <b>' . gffz_FormatMoney($Report['Sum']) . '</b>';
+	$Res .= '</div>' . GFFZ_NL;
+
+	$Res .= '<h3 class="ReportHdr">Продажи</h3>' . GFFZ_NL;
+	$Res .= '<table class="ReportTbl"><thead><tr><th>Дата</th><th>Пользователь</th><th>Модель</th><th>S/N</th><th class="Num">Стоимость</th></tr></thead><tbody>' . GFFZ_NL;
+
+	foreach($Report['Records'] as $Record)
+	{
+		$Res .= '<tr>';
+		$Res .= '<td class="Date">' . esc_html(gffz_FormatReportDateTime($Record['Date'])) . '</td>';
+		$Res .= '<td>' . esc_html($Record['User']) . '</td>';
+		$Res .= '<td>' . esc_html($Record['Model']) . '</td>';
+		$Res .= '<td>' . esc_html($Record['SN']) . '</td>';
+		$Res .= '<td class="Num">' . gffz_FormatMoney($Record['Cost']) . '</td>';
+		$Res .= '</tr>' . GFFZ_NL;
+	}
+
+	$Res .= '<tr class="Total"><td colspan="4">Всего</td><td class="Num">' . gffz_FormatMoney($Report['Sum']) . '</td></tr>' . GFFZ_NL;
+	$Res .= '</tbody></table>' . GFFZ_NL;
+
+	$Res .= '<h3 class="ReportHdr">По моделям</h3>' . GFFZ_NL;
+	$Res .= '<table class="ReportTbl ReportGroupTbl"><thead><tr><th>Модель</th><th class="Num">Кол-во</th><th class="Num">Сумма</th></tr></thead><tbody>' . GFFZ_NL;
+
+	foreach($Report['Models'] as $Item)
+	{
+		$Res .= '<tr>';
+		$Res .= '<td>' . esc_html($Item['Model']) . '</td>';
+		$Res .= '<td class="Num">' . $Item['Count'] . '</td>';
+		$Res .= '<td class="Num">' . gffz_FormatMoney($Item['Sum']) . '</td>';
+		$Res .= '</tr>' . GFFZ_NL;
+	}
+
+	$Res .= '<tr class="Total"><td>Итого</td><td class="Num">' . $Report['Count'] . '</td><td class="Num">' . gffz_FormatMoney($Report['Sum']) . '</td></tr>' . GFFZ_NL;
+	$Res .= '</tbody></table>' . GFFZ_NL;
+
+	$Res .= '<h3 class="ReportHdr">По пользователям</h3>' . GFFZ_NL;
+	$Res .= '<table class="ReportTbl ReportGroupTbl"><thead><tr><th>Пользователь</th><th class="Num">Кол-во</th><th class="Num">Сумма</th></tr></thead><tbody>' . GFFZ_NL;
+
+	foreach($Report['Users'] as $Item)
+	{
+		$Res .= '<tr>';
+		$Res .= '<td>' . esc_html($Item['User']) . '</td>';
+		$Res .= '<td class="Num">' . $Item['Count'] . '</td>';
+		$Res .= '<td class="Num">' . gffz_FormatMoney($Item['Sum']) . '</td>';
+		$Res .= '</tr>' . GFFZ_NL;
+	}
+
+	$Res .= '<tr class="Total"><td>Итого</td><td class="Num">' . $Report['Count'] . '</td><td class="Num">' . gffz_FormatMoney($Report['Sum']) . '</td></tr>' . GFFZ_NL;
+	$Res .= '</tbody></table>' . GFFZ_NL;
 
 	return $Res;
 }
